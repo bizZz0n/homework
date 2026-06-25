@@ -1,0 +1,36 @@
+# Terraform state files (contain sensitive data)
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars  # Keep default tfvars in git
+
+# Terraform directory (provider cache)
+.terraform/
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files except terraform.tfvars
+*.tfvars
+!terraform.tfvars
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform plan files
+*.tfplan
+*.tfplan.*
+
+# Temporary files
+*.tmp

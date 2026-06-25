@@ -1,0 +1,181 @@
+# Example GitHub Actions workflow using the terragrunt-plan-apply composite action
+#
+# Location: .github/workflows/deploy-infrastructure.yml
+#
+# This workflow demonstrates how to use the composite action in a real repo.
+# Customize the paths, environments, and conditions for your use case.
+
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'live/**'
+      - 'modules/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'live/**'
+      - 'modules/**'
+
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: "1.5"
+  TG_VERSION: "0.50"
+
+jobs:
+  # Plan all infrastructure changes (runs on PR and push)
+  plan:
+    name: Plan Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Plan Dev VPC
+      uses: ./  # Path to composite action
+      with:
+        path: live/dev/us-east-1/vpc
+        env: dev
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+    - name: Plan Dev EC2
+      uses: ./
+      with:
+        path: live/dev/us-east-1/ec2
+        env: dev
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+  # Deploy to production (only on push to main)
+  deploy-prod:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # Require approval for production changes
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy Production VPC
+      uses: ./
+      with:
+        path: live/prod/us-east-1/vpc
+        env: prod
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+    - name: Deploy Production EC2
+      uses: ./
+      with:
+        path: live/prod/us-east-1/ec2
+        env: prod
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+  # Deploy to staging (for testing, optional)
+  deploy-staging:
+    name: Deploy Staging (Optional)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy Staging VPC
+      uses: ./
+      with:
+        path: live/staging/us-east-1/vpc
+        env: staging
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+    - name: Deploy Staging EC2
+      uses: ./
+      with:
+        path: live/staging/us-east-1/ec2
+        env: staging
+        aws_region: us-east-1
+        terraform_version: ${{ env.TF_VERSION }}
+        terragrunt_version: ${{ env.TG_VERSION }}
+
+---
+# ADVANCED EXAMPLE: Multi-region deployment with matrix
+
+# name: Deploy Multi-Region
+# on: [push, pull_request]
+#
+# jobs:
+#   deploy:
+#     name: Deploy ${{ matrix.env }} - ${{ matrix.region }}
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         env: [dev, staging, prod]
+#         region: [us-east-1, eu-west-1]
+#       max-parallel: 2  # Limit concurrent runs
+#
+#     steps:
+#     - uses: actions/checkout@v4
+#
+#     - uses: ./  # Composite action
+#       with:
+#         path: live/${{ matrix.env }}/${{ matrix.region }}/vpc
+#         env: ${{ matrix.env }}
+#         aws_region: ${{ matrix.region }}
+
+---
+# NOTES:
+#
+# 1. Event Triggers:
+#    - pull_request: Plan only (no apply)
+#    - push to main: Plan + apply
+#    - workflow_dispatch: Manual trigger (both plan and deploy)
+#
+# 2. Environment Approvals:
+#    GitHub Actions "environment" blocks require approval before deployment.
+#    Configure in repo settings: Settings → Environments → production
+#
+# 3. AWS Authentication:
+#    Uses aws-actions/configure-aws-credentials@v4.
+#    Configure either:
+#    - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (long-lived keys)
+#    - IAM OIDC role (federated identity, more secure)
+#
+# 4. Path Filters:
+#    Only run workflow if these paths change:
+#    - live/ (infrastructure definitions)
+#    - modules/ (shared terraform)
+#    - .github/workflows/ (workflow itself)
+#
+# 5. Concurrency:
+#    Add to prevent concurrent runs (state locking):
+#    concurrency:
+#      group: ${{ matrix.env }}-${{ matrix.region }}
+#      cancel-in-progress: false
+#
+# 6. Logging:
+#    Set TF_LOG for debug output:
+#    env:
+#      TF_LOG: DEBUG

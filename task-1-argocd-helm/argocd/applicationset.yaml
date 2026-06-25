@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: sample-app
+  namespace: argocd
+spec:
+  # List generator: create one app per environment
+  # Simple, predictable, easy to extend
+  generators:
+  - list:
+      elements:
+      - env: dev
+        namespace: dev
+        replicas: 1
+      - env: staging
+        namespace: staging
+        replicas: 2
+
+  # Template applied for each generated Application
+  template:
+    metadata:
+      name: sample-app-{{env}}
+    spec:
+      project: default
+
+      # Git source: where the Helm chart lives
+      source:
+        repoURL: https://github.com/user/homework  # Change to your fork
+        targetRevision: main
+        path: task-1-argocd-helm/sample-app
+
+        # Helm configuration: base values + env-specific overrides
+        helm:
+          releaseName: sample-app-{{env}}
+          valuesFiles:
+          - values.yaml              # Base values (all keys defined here)
+          - values-{{env}}.yaml      # Env-specific overrides
+
+          # Alternative: pass values inline
+          # values: |
+          #   replicaCount: {{replicas}}
+
+      # Target cluster and namespace
+      destination:
+        server: https://kubernetes.default.svc  # In-cluster (minikube)
+        namespace: {{namespace}}
+
+      # Sync policy: auto-sync on git changes (GitOps!)
+      syncPolicy:
+        automated:
+          prune: true      # Delete resources removed from git
+          selfHeal: true   # Correct drift (kubectl apply by hand gets reverted)
+        syncOptions:
+        - CreateNamespace=true  # Create namespace if missing
+
+      # Revisions: track which git commit is deployed
+      revisionHistoryLimit: 10
+
+---
+# Note: ApplicationSet creates Applications automatically.
+# You'll see sample-app-dev and sample-app-staging created in argocd namespace.
+#
+# Why ApplicationSet over separate Applications?
+# 1. DRY: Single manifest for both envs
+# 2. Scalable: Add new env with one list element
+# 3. Patterns: Supports git files, cluster discovery, matrix generators
+#
+# Generators:
+# - list: Static environments (this example)
+# - git: Each directory/branch is an environment
+# - clusters: Deploy to all connected clusters
+# - matrix: Combine multiple generators (e.g., regions × environments)
+#
+# For interview: "How would you add a prod environment?"
+# Answer: Add element { env: prod, namespace: prod, replicas: 3 } to list.

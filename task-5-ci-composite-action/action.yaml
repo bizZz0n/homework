@@ -1,0 +1,176 @@
+name: Terragrunt Plan & Apply
+description: |
+  Runs terragrunt plan and terragrunt apply with AWS authentication,
+  plan output parsing, and PR comments for visibility.
+
+  Designed for multi-environment infrastructure deployments (dev/staging/prod).
+  Supports both pull_request (plan only) and push (plan + apply) events.
+
+inputs:
+  path:
+    description: Working directory path (e.g., live/prod/us-east-1/vpc)
+    required: true
+
+  env:
+    description: Environment name (dev, staging, prod)
+    required: true
+
+  var_file:
+    description: Terraform variable file (e.g., terraform.tfvars)
+    required: false
+    default: "terraform.tfvars"
+
+  aws_region:
+    description: AWS region for deployment
+    required: false
+    default: "us-east-1"
+
+  terraform_version:
+    description: Terraform version to use
+    required: false
+    default: "1.5"
+
+  terragrunt_version:
+    description: Terragrunt version to use
+    required: false
+    default: "0.50"
+
+  aws_role_to_assume:
+    description: AWS IAM role ARN for OIDC (if using workload identity)
+    required: false
+    default: ""
+
+outputs:
+  plan_output:
+    description: Summary of the Terraform plan
+    value: ${{ steps.plan.outputs.summary }}
+
+  apply_status:
+    description: Status of apply (success, failed, skipped)
+    value: ${{ steps.apply.outputs.status }}
+
+  resources_changed:
+    description: Number of resources that would be created/changed/destroyed
+    value: ${{ steps.plan.outputs.changes }}
+
+runs:
+  using: composite
+
+  steps:
+  - name: Checkout code
+    uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+
+  - name: Setup Terraform
+    uses: hashicorp/setup-terraform@v2
+    with:
+      terraform_version: ${{ inputs.terraform_version }}
+
+  - name: Setup Terragrunt
+    shell: bash
+    run: |
+      set -e
+      TERRAGRUNT_VERSION="${{ inputs.terragrunt_version }}"
+      TERRAGRUNT_URL="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+
+      echo "Installing Terragrunt ${TERRAGRUNT_VERSION}..."
+      curl -sL "${TERRAGRUNT_URL}" -o /tmp/terragrunt
+      chmod +x /tmp/terragrunt
+      sudo mv /tmp/terragrunt /usr/local/bin/terragrunt
+      terragrunt --version
+
+  - name: Configure AWS credentials (OIDC)
+    if: inputs.aws_role_to_assume != ''
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: ${{ inputs.aws_role_to_assume }}
+      aws-region: ${{ inputs.aws_region }}
+
+  - name: Configure AWS credentials (Long-lived keys)
+    if: inputs.aws_role_to_assume == ''
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.aws_region }}
+
+  - name: Terragrunt init
+    shell: bash
+    working-directory: ${{ inputs.path }}
+    run: |
+      echo "Initializing Terragrunt in ${{ inputs.path }}..."
+      terragrunt init --upgrade
+
+  - name: Terragrunt plan
+    id: plan
+    shell: bash
+    working-directory: ${{ inputs.path }}
+    run: |
+      echo "Planning infrastructure changes..."
+      terragrunt plan -out=tfplan -no-color > plan_output.txt 2>&1 || true
+
+      # Parse plan output for summary
+      SUMMARY=$(cat plan_output.txt | tail -20)
+      echo "summary<<EOF" >> $GITHUB_OUTPUT
+      echo "$SUMMARY" >> $GITHUB_OUTPUT
+      echo "EOF" >> $GITHUB_OUTPUT
+
+      # Count resource changes
+      CHANGES=$(grep -oE "[0-9]+ to (add|change|destroy)" plan_output.txt | wc -l || echo "0")
+      echo "changes=$CHANGES" >> $GITHUB_OUTPUT
+
+  - name: Comment PR with plan output
+    if: github.event_name == 'pull_request'
+    uses: actions/github-script@v7
+    with:
+      script: |
+        const fs = require('fs');
+        const workdir = '${{ inputs.path }}';
+        const planFile = workdir + '/plan_output.txt';
+
+        try {
+          const plan = fs.readFileSync(planFile, 'utf8');
+          const comment = `## 🔧 Terragrunt Plan: ${{ inputs.env }}/${{ inputs.path }}\n\n\`\`\`\n${plan}\n\`\`\`\n\n**Review this plan carefully before merging.** Merge to deploy.`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+          console.log('Plan output posted to PR');
+        } catch (error) {
+          console.log('Could not post plan output:', error.message);
+        }
+
+  - name: Terragrunt apply
+    id: apply
+    shell: bash
+    working-directory: ${{ inputs.path }}
+    run: |
+      if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+        echo "Applying infrastructure changes..."
+        terragrunt apply -no-color tfplan
+        echo "status=success" >> $GITHUB_OUTPUT
+      else
+        echo "Skipping apply (plan-only on PR or non-main branch)"
+        echo "status=skipped" >> $GITHUB_OUTPUT
+      fi
+
+  - name: Cleanup
+    if: always()
+    shell: bash
+    working-directory: ${{ inputs.path }}
+    run: |
+      rm -f tfplan plan_output.txt
+      echo "Cleanup completed"
+
+  - name: Report results
+    if: always()
+    shell: bash
+    run: |
+      echo "::notice::Terragrunt ${{ inputs.env }} deployment in ${{ inputs.path }} completed"
+      echo "Plan status: ${{ steps.plan.outcome }}"
+      echo "Apply status: ${{ steps.apply.outputs.status }}"

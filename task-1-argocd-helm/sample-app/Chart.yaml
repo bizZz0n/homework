@@ -1,0 +1,16 @@
+apiVersion: v2
+name: sample-app
+description: Sample application for GitOps demonstration
+type: application
+version: 1.0.0
+appVersion: "1.0"
+
+# Metadata for helm repository
+keywords:
+  - sample
+  - gitops
+  - argocd
+
+maintainers:
+  - name: Platform Team
+    email: platform@example.com

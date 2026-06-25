@@ -1,0 +1,50 @@
+# Staging environment overrides
+# Merged on top of values.yaml by Helm
+
+replicaCount: 2
+
+image:
+  tag: staging-v1.0.0
+
+logLevel: info
+logFormat: json
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+env:
+  - name: LOG_LEVEL
+    value: info
+  - name: ENVIRONMENT
+    value: staging
+  - name: API_ENDPOINT
+    value: https://api-staging.example.com
+  - name: DEBUG_MODE
+    value: "false"
+
+# Staging has stricter health checks (closer to prod)
+healthCheck:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Anti-affinity: spread replicas across nodes for staging HA
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - sample-app
+        topologyKey: kubernetes.io/hostname

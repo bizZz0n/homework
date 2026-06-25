@@ -1,0 +1,118 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: databases.database.example.com
+spec:
+  group: database.example.com
+  names:
+    kind: Database
+    plural: databases
+  claimNames:
+    kind: DatabaseClaim
+    plural: databaseclaims
+  connectionSecretKeys:
+  - username
+  - password
+  - endpoint
+  - port
+
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              # Database engine
+              engine:
+                type: string
+                description: Database engine (postgres, mysql, mariadb)
+                enum: [postgres, mysql, mariadb]
+                default: postgres
+
+              # Instance size (will be translated to cloud-specific class)
+              size:
+                type: string
+                description: Instance size (small, medium, large)
+                enum: [small, medium, large]
+                default: medium
+
+              # Storage allocation
+              storageGB:
+                type: integer
+                description: Allocated storage in GB
+                minimum: 20
+                maximum: 1000
+                default: 100
+
+              # Backups enabled
+              backupsEnabled:
+                type: boolean
+                description: Enable automated backups
+                default: true
+
+              # Multi-AZ for high availability
+              multiAZ:
+                type: boolean
+                description: Enable multi-AZ deployment
+                default: false
+
+              # Allow public access (security consideration)
+              publiclyAccessible:
+                type: boolean
+                description: Make database publicly accessible
+                default: false
+
+              # Environment tag
+              environment:
+                type: string
+                description: Environment (dev, staging, prod)
+                enum: [dev, staging, prod]
+                default: dev
+
+            required:
+            - engine
+            - size
+
+            type: object
+
+          status:
+            type: object
+            properties:
+              # Connection status
+              connected:
+                type: boolean
+                description: Database is reachable and healthy
+
+              # Endpoint for connection
+              endpoint:
+                type: string
+                description: Database endpoint address
+
+              # Port number
+              port:
+                type: integer
+                description: Database port
+
+            type: object
+
+---
+# Note: This XRD defines the custom "Database" resource.
+# Applications create DatabaseClaims; Crossplane provisions via Composition.
+#
+# Key fields:
+# - engine: What database (postgres/mysql/mariadb)
+# - size: small/medium/large (Composition will map to AWS class)
+# - storageGB: Storage allocation
+# - backupsEnabled: Backup configuration
+# - multiAZ: High availability
+# - publiclyAccessible: Security setting (should be false in prod)
+#
+# Interview Q: "Why split XRD and Composition?"
+# A: Separation of concerns. XRD = contract (what teams need).
+#    Composition = implementation (how we provision). Allows multiple
+#    compositions for same XRD (AWS + GCP + Azure).

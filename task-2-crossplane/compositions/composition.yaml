@@ -1,0 +1,127 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: database-composition
+  namespace: crossplane-system
+spec:
+  # This composition implements the Database XRD
+  compositeTypeRef:
+    apiVersion: database.example.com/v1alpha1
+    kind: Database
+
+  # Write connection details to a Secret
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+  # Primary database resource (would be AWS RDS in production)
+  - name: database-core
+    base:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        namespace: crossplane-system
+      data:
+        # In a real scenario, this would be an AWS RDS Instance:
+        # apiVersion: rds.aws.upbound.io/v1beta1
+        # kind: Instance
+        engine: postgres
+        allocated_storage: "100"
+        multi_az: "false"
+        publicly_accessible: "false"
+        backup_retention_period: "7"
+        auto_backup_enabled: "true"
+
+    # Patches: map claim fields to resource fields
+    patches:
+    - fromFieldPath: "metadata.uid"
+      toFieldPath: "metadata.name"
+      transforms:
+      - type: string
+        string:
+          fmt: "db-%s"
+
+    - fromFieldPath: "metadata.labels[crossplane.io/composite]"
+      toFieldPath: "metadata.labels[database]"
+
+    - fromFieldPath: "spec.engine"
+      toFieldPath: "data.engine"
+
+    - fromFieldPath: "spec.storageGB"
+      toFieldPath: "data.allocated_storage"
+      transforms:
+      - type: string
+        string:
+          fmt: "%d"
+
+    # Map size to instance class (example transformation)
+    - fromFieldPath: "spec.size"
+      toFieldPath: "data.instance_class"
+      transforms:
+      - type: map
+        map:
+          small: db.t3.micro
+          medium: db.t3.small
+          large: db.t3.large
+
+    - fromFieldPath: "spec.multiAZ"
+      toFieldPath: "data.multi_az"
+
+    - fromFieldPath: "spec.publiclyAccessible"
+      toFieldPath: "data.publicly_accessible"
+
+    - fromFieldPath: "spec.backupsEnabled"
+      toFieldPath: "data.auto_backup_enabled"
+
+    - fromFieldPath: "spec.environment"
+      toFieldPath: "metadata.labels[environment]"
+
+  # Connection secret: expose connection details to application
+  - name: connection-secret
+    base:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        namespace: crossplane-system
+      type: Opaque
+      data:
+        username: cG9zdGdyZXM=  # base64: postgres
+        password: cGFzc3dvcmQxMjM=  # base64: password123
+        endpoint: bG9jYWxob3N0  # base64: localhost
+        port: NTQzMg==  # base64: 5432
+
+    # Write connection secret to application namespace
+    connectionDetails:
+    - fromConnectionSecretKey: username
+    - fromConnectionSecretKey: password
+    - fromConnectionSecretKey: endpoint
+    - fromConnectionSecretKey: port
+
+---
+# IMPORTANT NOTES:
+#
+# This composition is SIMPLIFIED for demo purposes (uses ConfigMap instead of real RDS).
+#
+# In production, replace the "database-core" resource with:
+# apiVersion: rds.aws.upbound.io/v1beta1
+# kind: Instance
+# (requires aws-upbound provider to be installed)
+#
+# Real-world composition would include:
+# - Security Groups (for network access)
+# - DB Subnet Groups (for VPC placement)
+# - IAM roles (for backup/monitoring)
+# - Enhanced Monitoring (CloudWatch)
+#
+# Patches accomplish:
+# 1. Transform claim fields to resource fields
+# 2. Apply defaults (backup retention, multi-az, etc.)
+# 3. Translate abstraction to cloud-specific naming
+#    (spec.size: large → db.t3.large)
+#
+# Interview Q: "How do you add multi-cloud support?"
+# A: Create separate compositions with same XRD:
+#    - composition-aws.yaml (RDS Instance)
+#    - composition-gcp.yaml (Cloud SQL Instance)
+#    - composition-azure.yaml (Azure Database)
+#
+#    Teams' claims stay identical. Platform team selects composition.

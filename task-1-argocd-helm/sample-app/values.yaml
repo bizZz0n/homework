@@ -1,0 +1,56 @@
+# Default values shared across all environments
+# Overridden by values-{env}.yaml per ApplicationSet entry
+
+replicaCount: 1
+
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  tag: latest
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Application configuration
+app:
+  name: sample-app
+  version: "1.0.0"
+
+# Logging configuration
+logLevel: info
+logFormat: json
+
+# Resource limits
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# NodeSelector (allows targeting specific node pools per env)
+nodeSelector: {}
+
+# Tolerations for advanced scheduling
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Environment variables
+env:
+  - name: LOG_LEVEL
+    value: info
+  - name: ENVIRONMENT
+    value: production
+
+# Health checks
+healthCheck:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
