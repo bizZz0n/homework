@@ -4,7 +4,7 @@
 replicaCount: 1
 
 image:
-  tag: dev-latest
+  tag: 1.27-alpine
 
 logLevel: debug
 logFormat: text

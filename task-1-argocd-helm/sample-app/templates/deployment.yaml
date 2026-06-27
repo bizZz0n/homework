@@ -30,7 +30,7 @@ spec:
         {{- if .Values.healthCheck.enabled }}
         livenessProbe:
           httpGet:
-            path: /health
+            path: /
             port: http
           initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
           periodSeconds: {{ .Values.healthCheck.periodSeconds }}
@@ -38,7 +38,7 @@ spec:
           failureThreshold: {{ .Values.healthCheck.failureThreshold }}
         readinessProbe:
           httpGet:
-            path: /ready
+            path: /
             port: http
           initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
           periodSeconds: {{ .Values.healthCheck.periodSeconds }}

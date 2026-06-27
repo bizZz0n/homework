@@ -22,7 +22,9 @@ echo "Checking ArgoCD installation..."
 if ! kubectl get namespace argocd &>/dev/null; then
   echo "Installing ArgoCD..."
   kubectl create namespace argocd
-  kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  # Server-side apply: the ApplicationSet CRD exceeds the 256KB annotation
+  # limit that client-side `kubectl apply` imposes (last-applied-configuration).
+  kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   echo "Waiting for ArgoCD server to be ready (this may take 1-2 minutes)..."
   kubectl wait -n argocd --for=condition=Ready pod -l app.kubernetes.io/name=argocd-server --timeout=300s
 else

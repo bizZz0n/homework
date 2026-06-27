@@ -9,4 +9,4 @@ data:
   app.version: {{ .Values.app.version | quote }}
   log.level: {{ .Values.logLevel | quote }}
   log.format: {{ .Values.logFormat | quote }}
-  environment: {{ .Values.env | first | .value | quote }}
+  environment: {{ (first .Values.env).value | quote }}

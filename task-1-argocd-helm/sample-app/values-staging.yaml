@@ -4,7 +4,7 @@
 replicaCount: 2
 
 image:
-  tag: staging-v1.0.0
+  tag: stable-alpine
 
 logLevel: info
 logFormat: json

@@ -25,7 +25,7 @@ spec:
 
       # Git source: where the Helm chart lives
       source:
-        repoURL: https://github.com/user/homework  # Change to your fork
+        repoURL: https://github.com/bizZz0n/homework.git
         targetRevision: main
         path: task-1-argocd-helm/sample-app
 
