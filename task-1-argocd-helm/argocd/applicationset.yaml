@@ -9,12 +9,12 @@ spec:
   generators:
   - list:
       elements:
+      # NOTE: list-generator element values must be strings.
+      # Per-env replica counts live in values-<env>.yaml, not here.
       - env: dev
         namespace: dev
-        replicas: 1
       - env: staging
         namespace: staging
-        replicas: 2
 
   # Template applied for each generated Application
   template:
@@ -32,7 +32,7 @@ spec:
         # Helm configuration: base values + env-specific overrides
         helm:
           releaseName: sample-app-{{env}}
-          valuesFiles:
+          valueFiles:
           - values.yaml              # Base values (all keys defined here)
           - values-{{env}}.yaml      # Env-specific overrides
 
@@ -42,8 +42,8 @@ spec:
 
       # Target cluster and namespace
       destination:
-        server: https://kubernetes.default.svc  # In-cluster (minikube)
-        namespace: {{namespace}}
+        server: https://kubernetes.default.svc  # In-cluster
+        namespace: '{{namespace}}'
 
       # Sync policy: auto-sync on git changes (GitOps!)
       syncPolicy:
