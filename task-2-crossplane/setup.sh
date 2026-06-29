@@ -49,6 +49,12 @@ echo "Waiting for XRD to be established..."
 sleep 3
 kubectl get xrd databases.database.example.com || echo "  (XRD may take a moment to appear)"
 
+# Install the patch-and-transform function (required by Crossplane v2 Pipeline
+# compositions; native spec.resources was removed in v2).
+echo "Installing patch-and-transform function..."
+kubectl apply -f compositions/functions.yaml
+kubectl wait --for=condition=Healthy function.pkg.crossplane.io/function-patch-and-transform --timeout=180s
+
 # Apply Composition
 echo "Applying Composition..."
 kubectl apply -f compositions/composition.yaml
@@ -56,16 +62,16 @@ kubectl apply -f compositions/composition.yaml
 # Verify Composition created
 echo "Waiting for Composition to be established..."
 sleep 3
-kubectl get compositions -n crossplane-system || echo "  (Compositions may take a moment to appear)"
+kubectl get compositions || echo "  (Compositions may take a moment to appear)"
 
-# Apply example claim
-echo "Applying example DatabaseClaim..."
+# Apply example Database (v2 namespaced XR — no claims in v2)
+echo "Applying example Database..."
 kubectl apply -f examples/claim.yaml
 
-# Verify claim created
+# Verify Database created
 echo ""
 echo "✓ Resources created:"
-kubectl get databaseclaims -n my-app
+kubectl get databases -n my-app
 
 # Monitor status
 echo ""
@@ -73,25 +79,24 @@ echo "================================"
 echo "Next Steps:"
 echo "================================"
 echo ""
-echo "1. Watch claim provisioning (Ctrl-C to exit):"
-echo "   kubectl get -w databaseclaims -n my-app"
+echo "1. Watch Database provisioning (Ctrl-C to exit):"
+echo "   kubectl get -w databases -n my-app"
 echo ""
 echo "2. Check composite resource status:"
-echo "   kubectl get databases"
-echo "   kubectl describe database my-app-db"
+echo "   kubectl get databases -n my-app"
+echo "   kubectl describe database my-app-db -n my-app"
 echo ""
-echo "3. View Managed Resources created:"
-echo "   kubectl get managed"
-echo "   kubectl get configmaps -n crossplane-system | grep db"
+echo "3. View composed resources created:"
+echo "   kubectl get configmaps -n my-app"
 echo ""
 echo "4. See connection secret:"
-echo "   kubectl get secrets -n crossplane-system | grep my-app-db"
+echo "   kubectl get secrets -n my-app"
 echo ""
 echo "================================"
 echo "Architecture:"
 echo "================================"
 echo ""
-echo "Claim (my-app-db) → XRD (Database) → Composition → Managed Resources"
+echo "Database XR (my-app-db, namespaced) → XRD → Composition → Composed Resources"
 echo ""
 echo "Why Crossplane?"
 echo "  ✓ Kubernetes-native (CRDs, like Deployments)"

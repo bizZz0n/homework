@@ -75,18 +75,16 @@ spec:
 #### 2. **Composite Resource Definition** (XRD)
 Define your custom resource (like a CRD, but for infrastructure).
 ```yaml
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: databases.database.example.com
 spec:
+  scope: Namespaced   # v2: XRs are namespaced; claims are gone
   group: database.example.com
   names:
     kind: Database
     plural: databases
-  claimNames:
-    kind: DatabaseClaim
-    plural: databaseclaims
   # ... spec fields you want teams to use ...
 ```
 
@@ -101,21 +99,29 @@ spec:
   compositeTypeRef:
     apiVersion: database.example.com/v1alpha1
     kind: Database
-  resources:
-  - name: rds-instance
-    base:
-      apiVersion: rds.aws.upbound.io/v1beta1
-      kind: Instance
-    patches:
-    - fromFieldPath: "spec.engine"
-      toFieldPath: "spec.forProvider.engine"
+  mode: Pipeline   # v2: native spec.resources removed; run functions instead
+  pipeline:
+  - step: patch-and-transform
+    functionRef:
+      name: function-patch-and-transform
+    input:
+      apiVersion: pt.fn.crossplane.io/v1beta1
+      kind: Resources
+      resources:
+      - name: rds-instance
+        base:
+          apiVersion: rds.aws.upbound.io/v1beta1
+          kind: Instance
+        patches:
+        - fromFieldPath: "spec.engine"
+          toFieldPath: "spec.forProvider.engine"
 ```
 
-#### 4. **Claim** (Consumed by App Teams)
-What developers actually use.
+#### 4. **Database** (Consumed by App Teams)
+What developers actually use — a namespaced Database XR (v2 has no separate claim).
 ```yaml
 apiVersion: database.example.com/v1alpha1
-kind: DatabaseClaim
+kind: Database
 metadata:
   name: my-app-db
   namespace: my-app
@@ -168,6 +174,10 @@ kubectl wait -n crossplane-system --for=condition=Ready pod -l app.kubernetes.io
 # Apply our custom resource definition
 kubectl apply -f compositions/xrd.yaml
 
+# Install the patch-and-transform function (required by v2 Pipeline compositions)
+kubectl apply -f compositions/functions.yaml
+kubectl wait --for=condition=Healthy function.pkg.crossplane.io/function-patch-and-transform --timeout=180s
+
 # Apply composition (maps XRD to backing resources)
 kubectl apply -f compositions/composition.yaml
 
@@ -175,19 +185,18 @@ kubectl apply -f compositions/composition.yaml
 kubectl get xrd
 ```
 
-### Create a Claim
+### Create a Database
 
 ```bash
 # Create namespace for application
 kubectl create namespace my-app
 
-# Claim a database
+# Request a database (v2 namespaced XR — no separate claim)
 kubectl apply -f examples/claim.yaml
 
 # Watch resource provisioning
-kubectl get databases
-kubectl get databaseclaims -n my-app
-kubectl describe databaseclaim my-app-db -n my-app
+kubectl get databases -n my-app
+kubectl describe database my-app-db -n my-app
 ```
 
 ### Verify Resources Created

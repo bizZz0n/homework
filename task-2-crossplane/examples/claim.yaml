@@ -1,11 +1,12 @@
 apiVersion: database.example.com/v1alpha1
-kind: DatabaseClaim
+kind: Database
 metadata:
   name: my-app-db
   namespace: my-app
 spec:
   # Application team specifies what they need
   # No cloud knowledge required
+  # v2: namespaced Database XR, created directly (no DatabaseClaim in v2).
   engine: postgres
   size: large
   storageGB: 100
@@ -21,19 +22,17 @@ spec:
 # No AWS knowledge, no RDS syntax, no infrastructure details.
 #
 # Team asks: "We need a database"
-# They write this claim and apply it.
+# They write this Database resource and apply it.
 # Crossplane provisions the infrastructure.
 #
 # To verify:
-# kubectl get databases
-# kubectl get databaseclaims -n my-app
-# kubectl describe databaseclaim my-app-db -n my-app
+# kubectl get databases -n my-app
+# kubectl describe database my-app-db -n my-app
 #
 # To get connection details (for app to connect):
-# kubectl get secret -n crossplane-system <generated-secret-name>
-# kubectl get secret -n crossplane-system -o jsonpath='{.items[0].data.endpoint}' | base64 -d
+# kubectl get secret -n my-app -o jsonpath='{.items[0].data.endpoint}' | base64 -d
 #
 # INTERVIEW TALKING POINT:
-# "This claim is identical whether you're on AWS, GCP, or Azure.
+# "This spec is identical whether you're on AWS, GCP, or Azure.
 #  Platform team controls the actual provisioning via Composition.
 #  Teams don't need to know which cloud they're on."

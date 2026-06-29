@@ -1,20 +1,18 @@
-apiVersion: apiextensions.crossplane.io/v1
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
   name: databases.database.example.com
 spec:
+  # v2: XRs are namespaced. App teams create a Database directly in their
+  # namespace (the old claim/DatabaseClaim concept is removed in v2).
+  scope: Namespaced
   group: database.example.com
   names:
     kind: Database
     plural: databases
-  claimNames:
-    kind: DatabaseClaim
-    plural: databaseclaims
-  connectionSecretKeys:
-  - username
-  - password
-  - endpoint
-  - port
+  # No claimNames in v2 (claims unsupported). No connectionSecretKeys either
+  # (XR connection secrets unsupported) — the Composition composes a Secret
+  # directly into the XR namespace instead.
 
   versions:
   - name: v1alpha1
@@ -102,7 +100,7 @@ spec:
 
 ---
 # Note: This XRD defines the custom "Database" resource.
-# Applications create DatabaseClaims; Crossplane provisions via Composition.
+# Applications create a namespaced Database (v2); Crossplane provisions via Composition.
 #
 # Key fields:
 # - engine: What database (postgres/mysql/mariadb)

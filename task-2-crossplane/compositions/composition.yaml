@@ -2,104 +2,130 @@ apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
   name: database-composition
-  namespace: crossplane-system
 spec:
   # This composition implements the Database XRD
   compositeTypeRef:
     apiVersion: database.example.com/v1alpha1
     kind: Database
 
-  # Write connection details to a Secret
-  writeConnectionSecretsToNamespace: crossplane-system
+  # Crossplane v2 only supports Pipeline mode. The patch-and-transform
+  # function (see functions.yaml) replaces the removed native spec.resources.
+  mode: Pipeline
+  pipeline:
+  - step: patch-and-transform
+    functionRef:
+      name: function-patch-and-transform
+    input:
+      apiVersion: pt.fn.crossplane.io/v1beta1
+      kind: Resources
+      resources:
+      # Primary database resource (would be AWS RDS in production)
+      - name: database-core
+        base:
+          apiVersion: v1
+          kind: ConfigMap
+          data:
+            # In a real scenario, this would be an AWS RDS Instance:
+            # apiVersion: rds.aws.upbound.io/v1beta1
+            # kind: Instance
+            engine: postgres
+            allocated_storage: "100"
+            multi_az: "false"
+            publicly_accessible: "false"
+            backup_retention_period: "7"
+            auto_backup_enabled: "true"
 
-  resources:
-  # Primary database resource (would be AWS RDS in production)
-  - name: database-core
-    base:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        namespace: crossplane-system
-      data:
-        # In a real scenario, this would be an AWS RDS Instance:
-        # apiVersion: rds.aws.upbound.io/v1beta1
-        # kind: Instance
-        engine: postgres
-        allocated_storage: "100"
-        multi_az: "false"
-        publicly_accessible: "false"
-        backup_retention_period: "7"
-        auto_backup_enabled: "true"
+        # Patches: map claim fields to resource fields
+        patches:
+        - fromFieldPath: "metadata.uid"
+          toFieldPath: "metadata.name"
+          transforms:
+          - type: string
+            string:
+              type: Format
+              fmt: "db-%s"
 
-    # Patches: map claim fields to resource fields
-    patches:
-    - fromFieldPath: "metadata.uid"
-      toFieldPath: "metadata.name"
-      transforms:
-      - type: string
-        string:
-          fmt: "db-%s"
+        - fromFieldPath: "metadata.labels[crossplane.io/composite]"
+          toFieldPath: "metadata.labels[database]"
 
-    - fromFieldPath: "metadata.labels[crossplane.io/composite]"
-      toFieldPath: "metadata.labels[database]"
+        - fromFieldPath: "spec.engine"
+          toFieldPath: "data.engine"
 
-    - fromFieldPath: "spec.engine"
-      toFieldPath: "data.engine"
+        - fromFieldPath: "spec.storageGB"
+          toFieldPath: "data.allocated_storage"
+          transforms:
+          # JSON numbers arrive as float64; cast to int64 before %d formatting.
+          - type: convert
+            convert:
+              toType: int64
+          - type: string
+            string:
+              type: Format
+              fmt: "%d"
 
-    - fromFieldPath: "spec.storageGB"
-      toFieldPath: "data.allocated_storage"
-      transforms:
-      - type: string
-        string:
-          fmt: "%d"
+        # Map size to instance class (example transformation)
+        - fromFieldPath: "spec.size"
+          toFieldPath: "data.instance_class"
+          transforms:
+          - type: map
+            map:
+              small: db.t3.micro
+              medium: db.t3.small
+              large: db.t3.large
 
-    # Map size to instance class (example transformation)
-    - fromFieldPath: "spec.size"
-      toFieldPath: "data.instance_class"
-      transforms:
-      - type: map
-        map:
-          small: db.t3.micro
-          medium: db.t3.small
-          large: db.t3.large
+        - fromFieldPath: "spec.multiAZ"
+          toFieldPath: "data.multi_az"
+          transforms:
+          - type: convert
+            convert:
+              toType: string
 
-    - fromFieldPath: "spec.multiAZ"
-      toFieldPath: "data.multi_az"
+        - fromFieldPath: "spec.publiclyAccessible"
+          toFieldPath: "data.publicly_accessible"
+          transforms:
+          - type: convert
+            convert:
+              toType: string
 
-    - fromFieldPath: "spec.publiclyAccessible"
-      toFieldPath: "data.publicly_accessible"
+        - fromFieldPath: "spec.backupsEnabled"
+          toFieldPath: "data.auto_backup_enabled"
+          transforms:
+          - type: convert
+            convert:
+              toType: string
 
-    - fromFieldPath: "spec.backupsEnabled"
-      toFieldPath: "data.auto_backup_enabled"
+        - fromFieldPath: "spec.environment"
+          toFieldPath: "metadata.labels[environment]"
 
-    - fromFieldPath: "spec.environment"
-      toFieldPath: "metadata.labels[environment]"
+        # ConfigMap has no native readiness signal; treat as ready once created.
+        readinessChecks:
+        - type: None
 
-  # Connection secret: expose connection details to application
-  - name: connection-secret
-    base:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        namespace: crossplane-system
-      type: Opaque
-      data:
-        username: cG9zdGdyZXM=  # base64: postgres
-        password: cGFzc3dvcmQxMjM=  # base64: password123
-        endpoint: bG9jYWxob3N0  # base64: localhost
-        port: NTQzMg==  # base64: 5432
+      # Connection secret: expose connection details to application
+      - name: connection-secret
+        base:
+          apiVersion: v1
+          kind: Secret
+          type: Opaque
+          data:
+            username: cG9zdGdyZXM=  # base64: postgres
+            password: cGFzc3dvcmQxMjM=  # base64: password123
+            endpoint: bG9jYWxob3N0  # base64: localhost
+            port: NTQzMg==  # base64: 5432
 
-    # Write connection secret to application namespace
-    connectionDetails:
-    - fromConnectionSecretKey: username
-    - fromConnectionSecretKey: password
-    - fromConnectionSecretKey: endpoint
-    - fromConnectionSecretKey: port
+        # v2 namespaced XRs don't publish XR connection secrets. This composed
+        # Secret lands in the XR namespace and is the app's connection material.
+        readinessChecks:
+        - type: None
 
 ---
 # IMPORTANT NOTES:
 #
 # This composition is SIMPLIFIED for demo purposes (uses ConfigMap instead of real RDS).
+#
+# Crossplane v2 migration: native `spec.resources` patch-and-transform was
+# removed. The same logic now runs as a pipeline step via
+# function-patch-and-transform (functions.yaml). Apply functions.yaml first.
 #
 # In production, replace the "database-core" resource with:
 # apiVersion: rds.aws.upbound.io/v1beta1
