@@ -38,10 +38,10 @@ terraform-dev/
 ### With Terragrunt (Chosen)
 
 ```
+root.hcl (root config: provider, common inputs — included by all units)
 live/
-├── terragrunt.hcl (root config, included by all)
 ├── dev/
-│   ├── terragrunt.hcl (dev values)
+│   ├── env.hcl (dev values)
 │   ├── us-east-1/
 │   │   ├── vpc/
 │   │   │   └── terragrunt.hcl (points to modules/vpc)
@@ -51,13 +51,13 @@ live/
 │       ├── vpc/
 │       └── ec2/
 ├── staging/
-│   ├── terragrunt.hcl (staging values)
+│   ├── env.hcl (staging values)
 │   ├── us-east-1/
 │   │   ├── vpc/
 │   │   └── ec2/
 │   └── eu-west-1/
 └── prod/
-    ├── terragrunt.hcl (prod values)
+    ├── env.hcl (prod values)
     ├── us-east-1/
     └── eu-west-1/
 
@@ -74,7 +74,7 @@ modules/
 
 **Benefits**:
 - ✅ Single Terraform source (modules/)
-- ✅ Environment-specific overrides via terragrunt.hcl
+- ✅ Environment-specific overrides via env.hcl
 - ✅ Folder hierarchy visualizes env/region/component structure
 - ✅ Promotion: `cp -r live/dev/us-east-1/vpc live/staging/us-east-1/vpc` + update tfvars
 - ✅ Scales to 1000s of components
@@ -86,7 +86,7 @@ modules/
 ### 1. Remote State Configuration
 
 ```hcl
-# live/terragrunt.hcl
+# root.hcl
 remote_state {
   backend = "s3"
   config = {
@@ -109,23 +109,34 @@ remote_state {
 ### 2. Inputs (Variable Override)
 
 ```hcl
-# live/terragrunt.hcl
+# root.hcl
 inputs = {
   environment = get_env("TF_ENV", "dev")
   region      = get_env("TF_REGION", "us-east-1")
 }
 
-# live/dev/terragrunt.hcl (included by all dev components)
-inputs = merge(
-  read_terragrunt_config(find_in_parent_folders()).inputs,
-  {
-    environment = "dev"
-    project     = "platform-eng"
-  }
-)
+# live/dev/env.hcl (merged into every dev unit via the "env" include)
+inputs = {
+  environment = "dev"
+  project     = "platform-eng"
+}
 ```
 
-**Result**: All Terraform variables inherit from parent, component overrides.
+Each unit pulls these in with two flat includes (no chaining):
+
+```hcl
+# live/dev/us-east-1/vpc/terragrunt.hcl
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+include "env" {
+  path           = find_in_parent_folders("env.hcl")
+  merge_strategy = "deep"
+}
+```
+
+**Result**: All Terraform variables inherit from root + env, component overrides.
 
 ### 3. Locals (Helper Variables)
 
@@ -159,7 +170,7 @@ inputs = {
 ### 5. Generate Blocks (DRY Provider Config)
 
 ```hcl
-# live/terragrunt.hcl
+# root.hcl
 generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite"
@@ -188,13 +199,13 @@ generate "provider" {
 ```
 task-4-terragrunt/
 ├── README.md (this file)
-├── terragrunt.hcl (root: remote state, provider, common inputs)
+├── root.hcl (root: provider, common inputs — included by all units)
 ├── live/
 │   ├── dev/
-│   │   ├── terragrunt.hcl (dev defaults)
+│   │   ├── env.hcl (dev defaults)
 │   │   ├── us-east-1/
 │   │   │   ├── vpc/
-│   │   │   │   ├── terragrunt.hcl (points to ../../modules/vpc)
+│   │   │   │   ├── terragrunt.hcl (points to ../../../../modules/vpc)
 │   │   │   │   └── terraform.tfvars (vpc-specific dev values)
 │   │   │   └── ec2/
 │   │   │       ├── terragrunt.hcl
@@ -203,13 +214,13 @@ task-4-terragrunt/
 │   │       ├── vpc/
 │   │       └── ec2/
 │   ├── staging/
-│   │   ├── terragrunt.hcl (staging defaults)
+│   │   ├── env.hcl (staging defaults)
 │   │   ├── us-east-1/
 │   │   │   ├── vpc/
 │   │   │   └── ec2/
 │   │   └── eu-west-1/
 │   └── prod/
-│       ├── terragrunt.hcl (prod defaults: larger instances, HA)
+│       ├── env.hcl (prod defaults: larger instances, HA)
 │       ├── us-east-1/
 │       └── eu-west-1/
 └── modules/
@@ -244,10 +255,10 @@ terragrunt --version
 cd task-4-terragrunt
 
 # Generate Terraform files from terragrunt config
-terragrunt run-all init --terragrunt-working-dir live/dev
+terragrunt run --all init --working-dir live/dev
 
 # Plan all dev components (vpc, ec2, etc.)
-terragrunt run-all plan --terragrunt-working-dir live/dev
+terragrunt run --all plan --working-dir live/dev
 
 # Output: Execution plan for each component
 # Expected output shows VPC + EC2 resources for both regions
@@ -442,7 +453,7 @@ terragrunt plan  # Review changes
 terragrunt apply
 
 # Option B: Apply all staging components
-terragrunt run-all apply --terragrunt-working-dir live/staging
+terragrunt run --all apply --working-dir live/staging
 ```
 
 **Result**: Staging environment now mirrors dev structure but with different capacity/HA settings.
@@ -492,11 +503,11 @@ live/
 **Without Terragrunt**: Manually pass VPC ID to EC2 tfvars.
 **With Terragrunt**: dependency block auto-fetches.
 
-### 4. run-all for Batch Operations
+### 4. run --all for Batch Operations
 
 ```bash
 # Apply all components in dependency order
-terragrunt run-all apply --terragrunt-working-dir live/dev
+terragrunt run --all apply --working-dir live/dev
 
 # Terragrunt automatically:
 # 1. Detects dependencies
@@ -512,7 +523,7 @@ terragrunt run-all apply --terragrunt-working-dir live/dev
 |-------|-------|-----|
 | **State key mismatch** | `path_relative_to_include()` wrong | Verify folder structure matches state key |
 | **Dependency not found** | Dependency config_path doesn't exist | Check relative path (../ correct?) |
-| **run-all hangs** | Circular dependency or network | Check for A→B→A; verify AWS credentials |
+| **run --all hangs** | Circular dependency or network | Check for A→B→A; verify AWS credentials |
 | **generate provider conflicts** | Multiple generate "provider" blocks | Keep root generate only; use include |
 
 ---
@@ -548,7 +559,7 @@ terragrunt run-all apply --terragrunt-working-dir live/dev
 ## Success Criteria
 
 - [ ] All terragrunt.hcl files valid (terragrunt init works)
-- [ ] terragrunt run-all plan shows resources for multiple components
+- [ ] terragrunt run --all plan shows resources for multiple components
 - [ ] Dependency resolution works (ec2 finds vpc outputs)
 - [ ] You can describe promotion workflow without notes
 - [ ] Folder structure matches env/region/component hierarchy
