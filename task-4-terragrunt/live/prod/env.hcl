@@ -1,9 +1,6 @@
 # Production environment defaults
 # Highest reliability: HA across regions, encrypted backups, comprehensive monitoring
-
-include "root" {
-  path = find_in_parent_folders()
-}
+# Holds inputs/locals only; units include root.hcl separately.
 
 inputs = {
   environment               = "prod"

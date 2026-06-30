@@ -1,10 +1,6 @@
 # Development environment defaults
-# Included by all dev/region/component directories
-
-# Include root configuration
-include "root" {
-  path = find_in_parent_folders()
-}
+# Included by all dev/region/component units (as the "env" include).
+# This file holds inputs/locals only; units include root.hcl separately.
 
 # Environment-specific inputs (inherited by all dev components)
 inputs = {

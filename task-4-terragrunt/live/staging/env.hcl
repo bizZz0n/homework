@@ -1,9 +1,6 @@
 # Staging environment defaults
 # Closer to production: HA, backups enabled, monitoring
-
-include "root" {
-  path = find_in_parent_folders()
-}
+# Holds inputs/locals only; units include root.hcl separately.
 
 inputs = {
   environment               = "staging"

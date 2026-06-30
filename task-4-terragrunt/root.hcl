@@ -2,40 +2,33 @@
 # Included by all live/env/region/component directories
 # Configures remote state, provider, and common inputs
 
-# Configure remote state (for team collaboration, state locking)
-remote_state {
-  backend = "s3"
-  config = {
-    # For demo: local state is fine
-    # For production: uncomment and configure S3 bucket
-    # bucket         = "my-terraform-state-${get_aws_account_id()}"
-    # key            = "${path_relative_to_include()}/terraform.tfstate"
-    # region         = "us-east-1"
-    # dynamodb_table = "terraform-locks"
-    # encrypt        = true
-
-    # Demo uses local state (for this exercise)
-    skip = true
-  }
-
-  # Uncomment to auto-generate backend block from config above
-  # generate_backend = true
-}
+# Remote state: this demo uses Terraform's default LOCAL state, so no
+# remote_state block is configured.
+#
+# For production (team collaboration, state locking), add an S3 backend, e.g.:
+# remote_state {
+#   backend = "s3"
+#   generate = {
+#     path      = "backend.tf"
+#     if_exists = "overwrite"
+#   }
+#   config = {
+#     bucket         = "my-terraform-state-${get_aws_account_id()}"
+#     key            = "${path_relative_to_include()}/terraform.tfstate"
+#     region         = "us-east-1"
+#     dynamodb_table = "terraform-locks"
+#     encrypt        = true
+#   }
+# }
 
 # Auto-generate AWS provider configuration
-# Prevents copy-paste of provider block
+# Prevents copy-paste of the provider block. required_providers is NOT
+# generated here — each module declares its own, and Terraform allows only
+# one required_providers configuration per module.
 generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite"
   contents  = <<-EOF
-    terraform {
-      required_providers {
-        aws = {
-          source  = "hashicorp/aws"
-          version = "~> 5.0"
-        }
-      }
-    }
     provider "aws" {
       region = var.aws_region
 
