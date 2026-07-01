@@ -1,0 +1,17 @@
+# Terraform / Terragrunt local state and caches
+# .terragrunt-cache holds symlinks into the local provider plugin cache
+# (e.g. ~/.terraform.d) that point outside the repo. ArgoCD's repo-server
+# refuses to render manifests when it finds out-of-bounds symlinks like
+# these, so they must never be committed.
+**/.terragrunt-cache/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# IDE / OS
+.DS_Store
+.idea/
+*.swp
