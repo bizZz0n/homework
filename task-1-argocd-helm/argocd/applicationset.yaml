@@ -1,49 +1,60 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: sample-app
+  name: applications
   namespace: argocd
 spec:
-  # List generator: create one app per environment
-  # Simple, predictable, easy to extend
-  generators:
-  - list:
-      elements:
-      # NOTE: list-generator element values must be strings.
-      # Per-env replica counts live in values-<env>.yaml, not here.
-      - env: dev
-        namespace: dev
-      - env: staging
-        namespace: staging
+  # goTemplate: required to read nested git params like {{.path.basename}}
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
 
-  # Template applied for each generated Application
+  # Matrix generator: services (git) × environments (list)
+  # - git discovers each service dir under applications/*
+  # - list fans each service out to dev + staging
+  # New service = new dir in applications/, no manifest change needed.
+  generators:
+  - matrix:
+      generators:
+      # Service discovery: one element per directory in applications/*
+      - git:
+          repoURL: https://github.com/bizZz0n/homework.git
+          revision: main
+          directories:
+          - path: task-1-argocd-helm/applications/*
+      # Environments applied to every discovered service
+      - list:
+          elements:
+          - env: dev
+            namespace: dev
+          - env: staging
+            namespace: staging
+
+  # Template applied for each (service × env) pair.
+  # {{.path.basename}} = service name (e.g. sample-app)
+  # {{.path.path}}     = chart path within the repo
   template:
     metadata:
-      name: sample-app-{{env}}
+      name: '{{.path.basename}}-{{.env}}'
     spec:
       project: default
 
-      # Git source: where the Helm chart lives
+      # Git source: chart lives in the discovered service directory
       source:
         repoURL: https://github.com/bizZz0n/homework.git
         targetRevision: main
-        path: task-1-argocd-helm/sample-app
+        path: '{{.path.path}}'
 
         # Helm configuration: base values + env-specific overrides
         helm:
-          releaseName: sample-app-{{env}}
+          releaseName: '{{.path.basename}}-{{.env}}'
           valueFiles:
           - values.yaml              # Base values (all keys defined here)
-          - values-{{env}}.yaml      # Env-specific overrides
-
-          # Alternative: pass values inline
-          # values: |
-          #   replicaCount: {{replicas}}
+          - values-{{.env}}.yaml     # Env-specific overrides
 
       # Target cluster and namespace
       destination:
         server: https://kubernetes.default.svc  # In-cluster
-        namespace: '{{namespace}}'
+        namespace: '{{.namespace}}'
 
       # Sync policy: auto-sync on git changes (GitOps!)
       syncPolicy:
@@ -57,19 +68,16 @@ spec:
       revisionHistoryLimit: 10
 
 ---
-# Note: ApplicationSet creates Applications automatically.
-# You'll see sample-app-dev and sample-app-staging created in argocd namespace.
-#
-# Why ApplicationSet over separate Applications?
-# 1. DRY: Single manifest for both envs
-# 2. Scalable: Add new env with one list element
-# 3. Patterns: Supports git files, cluster discovery, matrix generators
+# ApplicationSet generates one Application per (service × env).
+# With one service (sample-app), you get:
+#   sample-app-dev, sample-app-staging
+# Add applications/<new-service>/ (with values.yaml + values-<env>.yaml)
+# and the matrix auto-creates <new-service>-dev, <new-service>-staging.
 #
 # Generators:
-# - list: Static environments (this example)
-# - git: Each directory/branch is an environment
-# - clusters: Deploy to all connected clusters
-# - matrix: Combine multiple generators (e.g., regions × environments)
+# - git (directories): each dir under applications/* becomes a service param
+# - list: static environments fanned across every service
+# - matrix: cartesian product of the two (services × envs)
 #
-# For interview: "How would you add a prod environment?"
-# Answer: Add element { env: prod, namespace: prod, replicas: 3 } to list.
+# Service name is derived from the git path ({{.path.basename}}) and reused
+# for the Application name, Helm release name, and chart path.

@@ -132,13 +132,31 @@ module "vpc" {
 ```
 task-3-terraform-aws/
 ├── README.md (this file)
-├── main.tf (VPC module + resources)
-├── variables.tf (input variables, flexible)
-├── outputs.tf (export VPC ID, subnet IDs, etc.)
-├── terraform.tfvars (default values)
+├── main.tf (S3 backend + workspace-driven VPC module)
+├── variables.tf (cross-env input variables)
+├── outputs.tf (export VPC ID, subnet IDs, environment, etc.)
+├── terraform.tfvars (cross-env defaults only)
+├── backend.hcl (partial S3 backend config for `init -backend-config`)
+├── bootstrap/ (one-time: creates the S3 state bucket, local state)
 ├── terraform.lock.hcl (dependency lock, commit to git)
 └── .gitignore (excludes terraform state, secrets)
 ```
+
+### Environments via Workspaces
+
+Per-environment networking (CIDR, subnets, AZs, NAT strategy) lives in the
+`env_config` map in `main.tf`, keyed by `terraform.workspace`. There are no
+per-env `.tfvars` files — you switch environments by switching workspace:
+
+| Workspace | VPC CIDR      | NAT gateways      |
+|-----------|---------------|-------------------|
+| `dev`     | 10.0.0.0/16   | single (cost)     |
+| `staging` | 10.1.0.0/16   | single (cost)     |
+| `prod`    | 10.2.0.0/16   | one per AZ (HA)   |
+
+State is isolated per workspace in S3 at
+`env/<workspace>/networking/vpc.tfstate`. A precondition blocks any run in an
+unknown workspace (e.g. `default`).
 
 ---
 
@@ -156,23 +174,44 @@ export AWS_ACCESS_KEY_ID=your-key
 export AWS_SECRET_ACCESS_KEY=your-secret
 ```
 
-### Validate & Plan (No Apply)
+### One-Time Bootstrap (creates the state bucket)
+
+The S3 backend can't store its own bucket, so create it once with local state:
+
+```bash
+cd task-3-terraform-aws/bootstrap
+terraform init
+terraform apply -var="state_bucket_name=platform-engineering-tfstate-<ACCOUNT_ID>"
+# Put the same bucket name into ../backend.hcl
+```
+
+No DynamoDB table — locking uses S3's native lockfile (`use_lockfile = true`,
+Terraform 1.11+).
+
+### Init, Select Workspace, Plan
 
 ```bash
 cd task-3-terraform-aws
 
-# Initialize Terraform (download provider, modules)
-terraform init
+# Initialize with the S3 backend (values from backend.hcl)
+terraform init -backend-config=backend.hcl
 
-# Validate syntax
+# Create/select the environment (state auto-isolates per workspace)
+terraform workspace new dev      # first time
+terraform workspace select dev   # thereafter
+
+# Validate syntax (runs in default workspace; that's fine)
 terraform validate
 
-# Generate plan (shows what would be created)
+# Generate plan for the selected workspace
 terraform plan -out=tfplan
 
 # Review plan output
 # Expected: ~20 resources (VPC, subnets, NAT gateways, route tables, etc.)
 ```
+
+> Validating/planning without AWS? Use `terraform init -backend=false` to skip
+> the backend and just install providers + modules.
 
 ### Understanding the Plan Output
 
@@ -303,9 +342,12 @@ Terraform maintains `terraform.tfstate` (JSON):
 **Why it matters**:
 - ✅ Source of truth for deployed resources
 - ✅ Enables `terraform plan` to diff against reality
-- ✅ **Must be stored remotely** (S3 backend) in real projects
+- ✅ **Stored remotely** (S3 backend) so a team shares one state
 
-**For this demo**: Local state is fine. Real teams use S3 + DynamoDB.
+**This project uses remote state**: S3 backend with native S3 locking
+(`use_lockfile = true`, Terraform 1.11+) — no DynamoDB table. Workspaces keep
+each environment's state in a separate key (`env/<workspace>/...`). Bucket
+versioning + SSE are enabled in `bootstrap/` for recovery and encryption.
 
 ---
 
@@ -322,7 +364,7 @@ Terraform maintains `terraform.tfstate` (JSON):
 
 ## What's NOT Included
 
-- **Remote state**: Uses local state; production teams use S3 + DynamoDB
+- **Cross-account state**: Single bucket/region; multi-account setups add per-account buckets + assume-role
 - **Security groups**: Would add EC2 security rules; out of scope for networking demo
 - **VPN/DirectConnect**: Advanced networking; not needed for this demo
 - **Multiple regions**: Single region; pattern scales to multi-region (Task 4 will show)
@@ -338,7 +380,7 @@ Terraform maintains `terraform.tfstate` (JSON):
    → Use `terraform workspaces` or `terragrunt` (Task 4) for env/region splits.
 
 3. **"Where do you store Terraform state?"**
-   → Remote backend (S3 + DynamoDB). Local state for demo; production uses remote with locking.
+   → S3 remote backend with native S3 locking (`use_lockfile`, no DynamoDB). Per-workspace keys isolate dev/staging/prod state.
 
 4. **"How do you review Terraform changes?"**
    → Code review the .tf files, review terraform plan output, merge to main, CI/CD applies.
@@ -347,11 +389,13 @@ Terraform maintains `terraform.tfstate` (JSON):
 
 ## Success Criteria
 
-- [ ] terraform init runs
+- [ ] bootstrap apply creates the S3 state bucket
+- [ ] terraform init -backend-config=backend.hcl connects to S3
 - [ ] terraform validate passes
-- [ ] terraform plan shows ~20 resources
-- [ ] All outputs present (vpc_id, subnet_ids, etc.)
-- [ ] You can explain module reuse benefit without notes
+- [ ] terraform workspace select dev|staging|prod works
+- [ ] terraform plan shows ~20 resources for the selected workspace
+- [ ] All outputs present (vpc_id, subnet_ids, environment, etc.)
+- [ ] You can explain module reuse + workspace state isolation without notes
 
 ---
 

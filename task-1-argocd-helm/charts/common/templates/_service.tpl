@@ -1,3 +1,8 @@
+{{/*
+common.service renders a Service from service.* and app.name.
+Consumed by app charts via: {{ include "common.service" . }}
+*/}}
+{{- define "common.service" -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,3 +18,4 @@ spec:
     name: http
   selector:
     app: {{ .Values.app.name }}
+{{- end -}}

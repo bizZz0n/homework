@@ -1,3 +1,10 @@
+{{/*
+common.deployment renders a Deployment from standard values keys:
+  app.{name,version}, replicaCount, image.*, service.targetPort,
+  env, resources, healthCheck.*, nodeSelector, tolerations, affinity
+Consumed by app charts via: {{ include "common.deployment" . }}
+*/}}
+{{- define "common.deployment" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,3 +64,4 @@ spec:
       affinity:
         {{- toYaml .Values.affinity | nindent 8 }}
       {{- end }}
+{{- end -}}

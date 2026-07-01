@@ -14,3 +14,9 @@ keywords:
 maintainers:
   - name: Platform Team
     email: platform@example.com
+
+# Shared templates come from the common library chart (vendored into charts/).
+dependencies:
+  - name: common
+    version: 1.0.0
+    repository: file://../../charts/common

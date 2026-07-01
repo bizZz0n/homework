@@ -1,3 +1,8 @@
+{{/*
+common.configmap renders a ConfigMap from app.*, logLevel, logFormat, env.
+Consumed by app charts via: {{ include "common.configmap" . }}
+*/}}
+{{- define "common.configmap" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,3 +15,4 @@ data:
   log.level: {{ .Values.logLevel | quote }}
   log.format: {{ .Values.logFormat | quote }}
   environment: {{ (first .Values.env).value | quote }}
+{{- end -}}

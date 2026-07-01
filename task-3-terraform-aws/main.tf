@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  # 1.11+ required for native S3 state locking (use_lockfile, no DynamoDB).
+  required_version = ">= 1.11"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -7,14 +8,12 @@ terraform {
     }
   }
 
-  # Local state for demo; production uses S3 backend
-  # backend "s3" {
-  #   bucket         = "my-terraform-state"
-  #   key            = "vpc/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "terraform-locks"
-  #   encrypt        = true
-  # }
+  # Remote state in S3 with native S3 lockfile (no DynamoDB).
+  # Values are supplied via partial config (backend blocks can't use variables):
+  #   terraform init -backend-config=backend.hcl
+  # With workspaces, state is stored per-workspace at:
+  #   s3://<bucket>/<workspace_key_prefix>/<workspace>/<key>
+  backend "s3" {}
 }
 
 # AWS Provider configuration
@@ -24,8 +23,57 @@ provider "aws" {
   default_tags {
     tags = {
       Project     = var.project_name
-      Environment = var.environment
+      Environment = terraform.workspace
       ManagedBy   = "Terraform"
+    }
+  }
+}
+
+locals {
+  # Environment is the active Terraform workspace (dev / staging / prod).
+  env = terraform.workspace
+
+  # Per-environment networking. Each workspace gets its own CIDR range so
+  # VPCs can peer without overlap. dev/staging use a single NAT gateway to
+  # save cost; prod runs one NAT per AZ for high availability.
+vpc_cidr           = "10.0.0.0/14"
+  env_config = {
+    dev = {
+      vpc_cidr           = cidrsubnet(local.vpc_cidr, 2, 0) #
+      availability_zones = ["us-east-1a", "us-east-1b"]
+      public_subnets     = cidrsubnets(local.vpc_cidr, 10, 10, 1)
+      private_subnets    = ["10.0.101.0/24", "10.0.102.0/24"]
+      single_nat_gateway = true
+    }
+    staging = {
+      vpc_cidr           = cidrsubnet(local.vpc_cidr, 2, 1) #
+      availability_zones = ["us-east-1a", "us-east-1b"]
+      public_subnets     = ["10.1.1.0/24", "10.1.2.0/24"]
+      private_subnets    = ["10.1.101.0/24", "10.1.102.0/24"]
+      single_nat_gateway = true
+    }
+    prod = {
+      vpc_cidr           = cidrsubnet(local.vpc_cidr, 2, 2) #
+      availability_zones = ["us-east-1a", "us-east-1b"]
+      public_subnets     = ["10.2.1.0/24", "10.2.2.0/24"]
+      private_subnets    = ["10.2.101.0/24", "10.2.102.0/24"]
+      single_nat_gateway = false
+    }
+  }
+
+  # lookup() with a fallback keeps `terraform validate` (which runs in the
+  # "default" workspace) from erroring on a missing key. Real plan/apply in an
+  # unknown workspace is still blocked by the workspace_guard precondition below.
+  cfg = lookup(local.env_config, local.env, local.env_config["dev"])
+}
+
+# Fail early with a clear message if run in an unknown workspace
+# (e.g. the "default" workspace) instead of a cryptic index error.
+resource "terraform_data" "workspace_guard" {
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.env_config), local.env)
+      error_message = "Workspace must be one of ${join(", ", keys(local.env_config))}. Got: ${local.env}. Run: terraform workspace select <env>"
     }
   }
 }
@@ -35,43 +83,32 @@ module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
-  name = var.vpc_name
-  cidr = var.vpc_cidr
+  name = "${var.vpc_name}-${local.env}"
+  cidr = local.cfg.vpc_cidr
 
   # Availability zones (for multi-AZ redundancy)
-  azs = var.availability_zones
+  azs = local.cfg.availability_zones
 
   # Public subnets: route to Internet Gateway
-  public_subnets  = var.public_subnets
-  private_subnets = var.private_subnets
+  public_subnets  = local.cfg.public_subnets
+  private_subnets = local.cfg.private_subnets
 
   # DNS settings
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # NAT Gateway configuration
+  # NAT Gateway configuration (per-env: single in dev/staging, HA in prod)
   enable_nat_gateway = true
-  single_nat_gateway = false  # One NAT per AZ for HA (not cost-optimized)
+  single_nat_gateway = local.cfg.single_nat_gateway
 
   # VPN Gateway (not needed for this demo)
   enable_vpn_gateway = false
 
   # VPC Flow Logs (captures network traffic for debugging/security)
-  enable_flow_log                      = true
-  create_flow_log_cloudwatch_iam_role  = true
-  create_flow_log_cloudwatch_log_group = true
+  enable_flow_log                                 = true
+  create_flow_log_cloudwatch_iam_role             = true
+  create_flow_log_cloudwatch_log_group            = true
   flow_log_cloudwatch_log_group_retention_in_days = 7
-
-  # Kubernetes specific tags (if using EKS)
-  # Uncomment if planning to use with EKS
-  # public_subnet_tags = {
-  #   "kubernetes.io/role/elb"                    = "1"
-  #   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-  # }
-  # private_subnet_tags = {
-  #   "kubernetes.io/role/internal-elb"           = "1"
-  #   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-  # }
 
   tags = {
     Tier = "Networking"
